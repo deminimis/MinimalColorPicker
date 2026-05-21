@@ -1,12 +1,11 @@
 // colorpicker.c
+
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
-
-#include <sal.h>
+#pragma comment(lib, "shell32.lib") 
 #include <windows.h>
-
-
+#include <shellapi.h> 
 
 // Avoid redefining CRT memset
 static void mcp_zero_memory(void* dest, SIZE_T count) {
@@ -75,8 +74,11 @@ int gLoupeY = 0;
 
 
 // App messages / hotkey
+
 #define WM_APP_PICK     (WM_APP + 1)
-#define ID_TRAY_EXIT    1002
+#define WM_APP_TRAYMSG  (WM_APP + 2) 
+#define IDTRAYEXIT      1002
+#define ID_TRAY_PICK    1003
 
 
 
@@ -753,10 +755,26 @@ void StartPicker(HINSTANCE hInstance) {
     UpdateWindow(hOverlay);
 }
 
-static void MinimizeTaskbarWindow(void) {
-    if (hMsg && !gExiting) {
-        ShowWindow(hMsg, SW_SHOWMINNOACTIVE);
-    }
+static void AddTrayIcon(HWND hwnd) {
+    NOTIFYICONDATAA nid;
+    ZeroMemory(&nid, sizeof(nid));
+    nid.cbSize = sizeof(NOTIFYICONDATAA);
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    nid.uCallbackMessage = WM_APP_TRAYMSG;
+    nid.hIcon = gAppIconSm;
+    lstrcpyA(nid.szTip, "Minimal Color Picker");
+    Shell_NotifyIconA(NIM_ADD, &nid);
+}
+
+static void RemoveTrayIcon(HWND hwnd) {
+    NOTIFYICONDATAA nid;
+    ZeroMemory(&nid, sizeof(nid));
+    nid.cbSize = sizeof(NOTIFYICONDATAA);
+    nid.hWnd = hwnd;
+    nid.uID = 1;
+    Shell_NotifyIconA(NIM_DELETE, &nid);
 }
 
 void StopPicker(void) {
@@ -769,18 +787,15 @@ void StopPicker(void) {
 
     if (!gExiting) {
         RegisterAppHotkey();
-
-        MinimizeTaskbarWindow();
     }
 }
-
-
 
 void ExitApp(void) {
     gExiting = 1;
 
     StopPicker();
     UnregisterAppHotkey();
+    RemoveTrayIcon(hMsg); 
 
     PostQuitMessage(0);
 }
@@ -790,10 +805,38 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CREATE:
         SendMessageA(hwnd, WM_SETICON, ICON_BIG, (LPARAM)gAppIcon);
         SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)gAppIconSm);
+        AddTrayIcon(hwnd); 
         return 0;
 
     case WM_APP_PICK:
         StartPicker(gInstance);
+        return 0;
+
+    case WM_APP_TRAYMSG:
+        if (lParam == WM_LBUTTONUP) {
+            // Left click tray icon = Pick color
+            PostMessageA(hwnd, WM_APP_PICK, 0, 0);
+        }
+        else if (lParam == WM_RBUTTONUP) {
+            // Right click tray icon = Context Menu
+            POINT pt;
+            GetCursorPos(&pt);
+            HMENU hMenu = CreatePopupMenu();
+            InsertMenuA(hMenu, 0, MF_BYPOSITION | MF_STRING, ID_TRAY_PICK, "Pick Color");
+            InsertMenuA(hMenu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+            InsertMenuA(hMenu, 2, MF_BYPOSITION | MF_STRING, IDTRAYEXIT, "Exit");
+
+            SetForegroundWindow(hwnd); 
+            int cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, NULL);
+            DestroyMenu(hMenu);
+
+            if (cmd == ID_TRAY_PICK) {
+                PostMessageA(hwnd, WM_APP_PICK, 0, 0);
+            }
+            else if (cmd == IDTRAYEXIT) {
+                ExitApp();
+            }
+        }
         return 0;
 
     case WM_HOTKEY:
@@ -802,30 +845,6 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         break;
-
-    case WM_SYSCOMMAND:
-        switch (wParam & 0xFFF0) {
-        case SC_RESTORE:
-        case SC_MAXIMIZE:
-            // Launch picker from taskbar
-            MinimizeTaskbarWindow();
-            PostMessageA(hwnd, WM_APP_PICK, 0, 0);
-            return 0;
-        }
-        break;
-
-    case WM_ACTIVATE:
-        if (LOWORD(wParam) != WA_INACTIVE && !hOverlay && !gExiting) {
-            // Return to taskbar and start
-            MinimizeTaskbarWindow();
-            PostMessageA(hwnd, WM_APP_PICK, 0, 0);
-            return 0;
-        }
-        break;
-
-    case WM_CLOSE:
-        MinimizeTaskbarWindow();
-        return 0;
 
     case WM_DESTROY:
         if (!gExiting) {
@@ -869,11 +888,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     REG_CLASS(ToastProc, "ColorPickerToast", LoadCursor(NULL, IDC_ARROW), 0);
 
     hMsg = CreateWindowExA(
-        0,
+        WS_EX_TOOLWINDOW,
         "ColorPickerHidden",
         "Minimal Color Picker",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 320, 120,
+        WS_POPUP,
+        0, 0, 0, 0,
         NULL,
         NULL,
         hInstance,
@@ -890,11 +909,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
         return 0;
     }
-
-    SendMessageA(hMsg, WM_SETICON, ICON_BIG, (LPARAM)gAppIcon);
-    SendMessageA(hMsg, WM_SETICON, ICON_SMALL, (LPARAM)gAppIconSm);
-
-    ShowWindow(hMsg, SW_SHOWMINNOACTIVE);
 
     RegisterAppHotkey();
 
