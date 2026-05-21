@@ -20,6 +20,11 @@ This app is fully portable. Simply extract the .exe anywhere in your User folder
 
 Once the application is running, it minimizes automatically to your system tray.
 
+<p float="left">
+  <img src="https://github.com/deminimis/MinimalColorPicker/blob/master/screenshot1" width="45%" />
+  <img src="https://github.com/deminimis/MinimalColorPicker/blob/master/screenshot2" width="45%" />
+</p>
+
 
 
 ### Controls
