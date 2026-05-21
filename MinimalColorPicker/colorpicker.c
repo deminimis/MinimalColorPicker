@@ -779,8 +779,12 @@ static void ToggleStartup(void) {
         }
         else {
             char exePath[MAX_PATH];
+            char quotedPath[MAX_PATH + 2];
             GetModuleFileNameA(NULL, exePath, MAX_PATH);
-            RegSetValueExA(hKey, "MinimalColorPicker", 0, REG_SZ, (const BYTE*)exePath, lstrlenA(exePath) + 1);
+
+            wsprintfA(quotedPath, "\"%s\"", exePath);
+
+            RegSetValueExA(hKey, "MinimalColorPicker", 0, REG_SZ, (const BYTE*)quotedPath, lstrlenA(quotedPath) + 1);
         }
         RegCloseKey(hKey);
     }
@@ -906,8 +910,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     InitSettingsPath();
     LoadSettings();
-    // 1:1 pixel mapping on high-dpi
-    SetProcessDPIAware();
+
+    // 1:1 pixel mapping on high-dpi 
+    HMODULE hUser32 = GetModuleHandleA("user32.dll");
+    typedef BOOL(WINAPI* SetProcessDpiAwarenessContextProc)(HANDLE);
+    SetProcessDpiAwarenessContextProc setDpiCtx = (SetProcessDpiAwarenessContextProc)GetProcAddress(hUser32, "SetProcessDpiAwarenessContext");
+
+    if (setDpiCtx) {
+        // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 is defined as -4
+        setDpiCtx((HANDLE)-4);
+    }
+    else {
+        SetProcessDPIAware(); // Fallback for older Windows versions
+    }
 
     HWND hExisting = FindWindowA("ColorPickerHidden", NULL);
     if (hExisting) {
