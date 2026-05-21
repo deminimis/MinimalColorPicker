@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="MinimalColorPicker/MinimalColorPicker.vcxproj" Id="b3539ecc-1633-4172-b805-0fa2e2b1716b" />
+</Solution>
