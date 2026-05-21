@@ -223,8 +223,17 @@ static void FreeDesktopSnapshot(void) {
 }
 
 static int CaptureDesktopSnapshot(void) {
-    FreeDesktopSnapshot();
+    int oldW = gVirtW, oldH = gVirtH;
     GetVirtualMetrics(&gVirtX, &gVirtY, &gVirtW, &gVirtH);
+
+    // Reuse bitmap memory if same screen dimensions
+    if (gPickDC && gPickBmp && gVirtW == oldW && gVirtH == oldH) {
+        if (BitBlt(gPickDC, 0, 0, gVirtW, gVirtH, hdcScreen, gVirtX, gVirtY, SRCCOPY)) {
+            return 1;
+        }
+    }
+
+    FreeDesktopSnapshot();
 
     gPickDC = CreateCompatibleDC(hdcScreen);
     if (!gPickDC) return 0;
@@ -270,7 +279,7 @@ static COLORREF SampleSnapshotColor(int screenX, int screenY) {
     int lx = screenX - gVirtX, ly = screenY - gVirtY, r = gPixelRadius;
     int x0 = CLAMP(lx - r, 0, gVirtW - 1), x1 = CLAMP(lx + r, 0, gVirtW - 1);
     int y0 = CLAMP(ly - r, 0, gVirtH - 1), y1 = CLAMP(ly + r, 0, gVirtH - 1);
-    int sumR = 0, sumG = 0, sumB = 0, count = 0;
+    int sumR = 0, sumG = 0, sumB = 0;
     DWORD* px = (DWORD*)gPickBits;
 
     for (int y = y0; y <= y1; y++) {
@@ -281,10 +290,10 @@ static COLORREF SampleSnapshotColor(int screenX, int screenY) {
             sumB += c & 0xFF;
             sumG += (c >> 8) & 0xFF;
             sumR += (c >> 16) & 0xFF;
-            count++;
         }
     }
 
+    int count = (x1 - x0 + 1) * (y1 - y0 + 1);
     return count ? RGB(sumR / count, sumG / count, sumB / count) : RGB(0, 0, 0);
 }
 
@@ -854,9 +863,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     gInstance = hInstance;
     hdcScreen = GetDC(NULL);
 
-    InitSettingsPath();
-    LoadSettings();
-    SaveSettings(); // Create settings first run
+    SaveSettings(); // Create settings file
 
     InitCachedGdiObjects();
     LoadAppIcons();
