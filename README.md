@@ -16,7 +16,11 @@ A tiny, blazing-fast, and distraction-free color picker for Windows, written in 
 
 ## Usage
 
+This app is fully portable. Simply extract the .exe anywhere in your User folder (like Documents or a dedicated portable apps folder). Avoid placing it in C:\Program Files\ so the app can successfully save your settings to its .ini file
+
 Once the application is running, it minimizes automatically to your system tray.
+
+
 
 ### Controls
 * **Summon Picker**: Press `Ctrl + Shift + D` (Default, may be changed in the `.ini`
