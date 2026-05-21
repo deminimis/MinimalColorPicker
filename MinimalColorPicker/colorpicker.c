@@ -124,6 +124,11 @@ AppHotkey gHotkey = { 1, MOD_CONTROL | MOD_SHIFT, 'D' };
 
 int gHotkeyRegistered = 0;
 int gExiting = 0;
+char gIniPath[MAX_PATH] = { 0 };
+
+static void SaveSettings(void);
+static void LoadSettings(void);
+static void InitSettingsPath(void);
 
 // App icon 
 HICON gAppIcon = NULL;
@@ -770,10 +775,13 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (cmd == ID_TRAY_PICK) {
                 PostMessageA(hwnd, WM_APP_PICK, 0, 0);
             }
-            else if (cmd == ID_TRAY_SIZE_1X1) gPixelRadius = 0;
-            else if (cmd == ID_TRAY_SIZE_3X3) gPixelRadius = 1;
-            else if (cmd == ID_TRAY_SIZE_5X5) gPixelRadius = 2;
-            else if (cmd == ID_TRAY_SIZE_15X15) gPixelRadius = 7;
+            else if (cmd >= ID_TRAY_SIZE_1X1 && cmd <= ID_TRAY_SIZE_15X15) {
+                if (cmd == ID_TRAY_SIZE_1X1) gPixelRadius = 0;
+                else if (cmd == ID_TRAY_SIZE_3X3) gPixelRadius = 1;
+                else if (cmd == ID_TRAY_SIZE_5X5) gPixelRadius = 2;
+                else if (cmd == ID_TRAY_SIZE_15X15) gPixelRadius = 7;
+                SaveSettings(); // Write to .ini file
+            }
             else if (cmd == IDTRAYEXIT) {
                 ExitApp();
             }
@@ -797,12 +805,43 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcA(hwnd, msg, wParam, lParam);
 }
 
+static void InitSettingsPath(void) {
+    GetModuleFileNameA(NULL, gIniPath, MAX_PATH);
+    int len = lstrlenA(gIniPath);
+    while (len > 0 && gIniPath[len] != '\\' && gIniPath[len] != '.') len--;
+    if (len > 0 && gIniPath[len] == '.') lstrcpyA(&gIniPath[len], ".ini");
+    else lstrcatA(gIniPath, ".ini");
+}
+
+static void LoadSettings(void) {
+    gPixelRadius = GetPrivateProfileIntA("Settings", "PixelRadius", 1, gIniPath);
+    gHotkey.modifiers = GetPrivateProfileIntA("Settings", "HotkeyMods", MOD_CONTROL | MOD_SHIFT, gIniPath);
+    gHotkey.vk = GetPrivateProfileIntA("Settings", "HotkeyVK", 'D', gIniPath);
+}
+
+static void SaveSettings(void) {
+    char buf[32];
+    wsprintfA(buf, "%d", gPixelRadius);
+    WritePrivateProfileStringA("Settings", "PixelRadius", buf, gIniPath);
+    wsprintfA(buf, "%d", gHotkey.modifiers);
+    WritePrivateProfileStringA("Settings", "HotkeyMods", buf, gIniPath);
+    wsprintfA(buf, "%d", gHotkey.vk);
+    WritePrivateProfileStringA("Settings", "HotkeyVK", buf, gIniPath);
+
+    // Write instructions in INI file
+    WritePrivateProfileStringA("Settings", "Help_Mods", "1=ALT, 2=CTRL, 4=SHIFT, 8=WIN (Add them together, e.g., 6 is CTRL+SHIFT)", gIniPath);
+    WritePrivateProfileStringA("Settings", "Help_VK", "Use Decimal Virtual-Key Codes. Link below.", gIniPath);
+    WritePrivateProfileStringA("Settings", "Help_URL", "https://learn.microsoft.com/en-us/windows/win32/inputdev/virtual-key-codes", gIniPath);
+}
+
 // Entry Point
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nCmdShow) {
     (void)hPrevInstance;
     (void)lpCmdLine;
     (void)nCmdShow;
 
+    InitSettingsPath();
+    LoadSettings();
     // 1:1 pixel mapping on high-dpi
     SetProcessDPIAware();
 
@@ -814,6 +853,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     gInstance = hInstance;
     hdcScreen = GetDC(NULL);
+
+    InitSettingsPath();
+    LoadSettings();
+    SaveSettings(); // Create settings first run
 
     InitCachedGdiObjects();
     LoadAppIcons();
