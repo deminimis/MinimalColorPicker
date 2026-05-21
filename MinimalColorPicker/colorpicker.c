@@ -3,11 +3,25 @@
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "shell32.lib") 
+#pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "advapi32.lib")
 #include <windows.h>
-#include <shellapi.h> 
+#include <sal.h>
 #include "resource.h" 
+
+// Custom memset for minimal CRT-less release builds
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 28251) // Suppress inconsistent annotation warning
+#pragma warning(disable: 6001)  // Suppress uninitialized memory warning
+#pragma function(memset)
+void* __cdecl memset(void* dest, int c, size_t count) {
+    unsigned char* p = (unsigned char*)dest;
+    while (count--) *p++ = (unsigned char)c;
+    return dest;
+}
+#pragma warning(pop)
+#endif
 
 #define MCP_ZERO(ptr) ZeroMemory((ptr), sizeof(*(ptr)))
 
@@ -58,7 +72,6 @@ int gLoupeY = 0;
 
 
 // App messages / hotkey
-
 #define WM_APP_PICK     (WM_APP + 1)
 #define WM_APP_TRAYMSG  (WM_APP + 2) 
 #define IDTRAYEXIT      1002
@@ -68,10 +81,6 @@ int gLoupeY = 0;
 #define ID_TRAY_SIZE_5X5 1006
 #define ID_TRAY_SIZE_15X15 1007
 #define ID_TRAY_STARTUP  1008
-
-
-
-
 
 #define TOAST_W         92
 #define TOAST_H         36
@@ -180,7 +189,7 @@ static void LoadAppIcons(void) {
         IMAGE_ICON,
         GetSystemMetrics(SM_CXICON),
         GetSystemMetrics(SM_CYICON),
-        LR_DEFAULTCOLOR
+        LR_DEFAULTCOLOR | LR_SHARED
     );
 
     gAppIconSm = (HICON)LoadImageA(
@@ -189,10 +198,17 @@ static void LoadAppIcons(void) {
         IMAGE_ICON,
         GetSystemMetrics(SM_CXSMICON),
         GetSystemMetrics(SM_CYSMICON),
-        LR_DEFAULTCOLOR
+        LR_DEFAULTCOLOR | LR_SHARED
     );
 
-    // Fallback 
+    // Fallback
+    if (!gAppIcon || !gAppIconSm) {
+        char exePath[MAX_PATH];
+        GetModuleFileNameA(NULL, exePath, MAX_PATH);
+        ExtractIconExA(exePath, 0, gAppIcon ? NULL : &gAppIcon, gAppIconSm ? NULL : &gAppIconSm, 1);
+    }
+
+    // System Fallback
     if (!gAppIcon) {
         gAppIcon = LoadIconA(NULL, MAKEINTRESOURCEA(32512));
     }
@@ -203,7 +219,7 @@ static void LoadAppIcons(void) {
 }
 
 static void DestroyAppIcons(void) {
-    HICON defaultIcon = LoadIconA(NULL, MAKEINTRESOURCEA(32512)); 
+    HICON defaultIcon = LoadIconA(NULL, MAKEINTRESOURCEA(32512));
 
     if (gAppIcon && gAppIcon != defaultIcon) {
         DestroyIcon(gAppIcon);
@@ -410,8 +426,6 @@ void ShowCopiedToast(int x, int y) {
     }
 }
 
-
-
 // Fullscreen invisible overlay
 static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
@@ -424,26 +438,29 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
         if (gPickDC) {
             RECT rcPaint = ps.rcPaint;
+            int paintW = rcPaint.right - rcPaint.left;
+            int paintH = rcPaint.bottom - rcPaint.top;
 
-            // Paint snapshot as fullscreen background
+            // Create double buffer
+            HDC hDoubleDC = CreateCompatibleDC(hdc);
+            HBITMAP hDoubleBmp = CreateCompatibleBitmap(hdc, paintW, paintH);
+            HBITMAP hOldDouble = (HBITMAP)SelectObject(hDoubleDC, hDoubleBmp);
+
+            // Paint snapshot to double buffer
             BitBlt(
-                hdc,
-                rcPaint.left,
-                rcPaint.top,
-                rcPaint.right - rcPaint.left,
-                rcPaint.bottom - rcPaint.top,
+                hDoubleDC,
+                0, 0, paintW, paintH,
                 gPickDC,
-                rcPaint.left,
-                rcPaint.top,
+                rcPaint.left, rcPaint.top,
                 SRCCOPY
             );
 
-            // Draw loupe and add to overlay as merged bitmap
+            // Draw loupe
             HDC hMemDC = CreateCompatibleDC(hdc);
             HBITMAP hBmp = CreateCompatibleBitmap(hdc, LOUPE_SIZE, LOUPE_SIZE);
             HBITMAP hOld = (HBITMAP)SelectObject(hMemDC, hBmp);
 
-            POINT pt;
+            POINT pt = { 0 };
             GetCursorPos(&pt);
 
             int srcSize = LOUPE_SIZE / ZOOM_FACTOR;
@@ -454,15 +471,9 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             StretchBlt(
                 hMemDC,
-                0,
-                0,
-                LOUPE_SIZE,
-                LOUPE_SIZE,
+                0, 0, LOUPE_SIZE, LOUPE_SIZE,
                 gPickDC,
-                srcX,
-                srcY,
-                srcSize,
-                srcSize,
+                srcX, srcY, srcSize, srcSize,
                 SRCCOPY
             );
 
@@ -475,7 +486,6 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
             SelectObject(hMemDC, hOldPen);
             SelectObject(hMemDC, hOldBrush);
-           
 
             // Center target pixel
             int centerBoxSize = (2 * gPixelRadius + 1) * ZOOM_FACTOR;
@@ -492,18 +502,14 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             // Shadow around target
             hOldPen = (HPEN)SelectObject(hMemDC, gPenShadow);
             hOldBrush = (HBRUSH)SelectObject(hMemDC, hNullBrush);
-
             Rectangle(hMemDC, rBox.left - 1, rBox.top - 1, rBox.right + 1, rBox.bottom + 1);
-
             SelectObject(hMemDC, hOldPen);
             SelectObject(hMemDC, hOldBrush);
 
             // Target outline
             hOldPen = (HPEN)SelectObject(hMemDC, gPenTarget);
             hOldBrush = (HBRUSH)SelectObject(hMemDC, hNullBrush);
-
             Rectangle(hMemDC, rBox.left, rBox.top, rBox.right, rBox.bottom);
-
             SelectObject(hMemDC, hOldPen);
             SelectObject(hMemDC, hOldBrush);
 
@@ -546,21 +552,35 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 SelectObject(hMemDC, hOldFont);
             }
 
+            // Stamp loupe to double buffer
             BitBlt(
-                hdc,
-                gLoupeX,
-                gLoupeY,
-                LOUPE_SIZE,
-                LOUPE_SIZE,
+                hDoubleDC,
+                gLoupeX - rcPaint.left,
+                gLoupeY - rcPaint.top,
+                LOUPE_SIZE, LOUPE_SIZE,
                 hMemDC,
-                0,
-                0,
+                0, 0,
                 SRCCOPY
             );
 
+            // Stamp double buffer to screen
+            BitBlt(
+                hdc,
+                rcPaint.left, rcPaint.top,
+                paintW, paintH,
+                hDoubleDC,
+                0, 0,
+                SRCCOPY
+            );
+
+            // Cleanup
             SelectObject(hMemDC, hOld);
             DeleteObject(hBmp);
             DeleteDC(hMemDC);
+
+            SelectObject(hDoubleDC, hOldDouble);
+            DeleteObject(hDoubleBmp);
+            DeleteDC(hDoubleDC);
         }
 
         EndPaint(hwnd, &ps);
@@ -568,14 +588,14 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     }
 
     case WM_MOUSEMOVE: {
-        POINT pt;
+        POINT pt = { 0 };
         GetCursorPos(&pt);
         MoveMergedLoupe(hwnd, pt.x, pt.y);
         return 0;
     }
 
     case WM_LBUTTONDOWN: {
-        POINT pt;
+        POINT pt = { 0 };
         GetCursorPos(&pt);
 
         COLORREF avg = SampleSnapshotColor(pt.x, pt.y);
@@ -644,9 +664,6 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     return DefWindowProcA(hwnd, msg, wParam, lParam);
 }
 
-
-
-
 static void RegisterAppHotkey(void) {
     if (!gHotkeyRegistered && hMsg) {
         if (RegisterHotKey(hMsg, gHotkey.id, gHotkey.modifiers, gHotkey.vk)) {
@@ -670,7 +687,7 @@ void StartPicker(HINSTANCE hInstance) {
         return;
     }
 
-    POINT pt;
+    POINT pt = { 0 };
     GetCursorPos(&pt);
     PositionLoupe(pt.x, pt.y);
 
@@ -698,8 +715,7 @@ void StartPicker(HINSTANCE hInstance) {
 }
 
 static void AddTrayIcon(HWND hwnd) {
-    NOTIFYICONDATAA nid;
-    ZeroMemory(&nid, sizeof(nid));
+    NOTIFYICONDATAA nid = { 0 };
     nid.cbSize = sizeof(NOTIFYICONDATAA);
     nid.hWnd = hwnd;
     nid.uID = 1;
@@ -711,8 +727,7 @@ static void AddTrayIcon(HWND hwnd) {
 }
 
 static void RemoveTrayIcon(HWND hwnd) {
-    NOTIFYICONDATAA nid;
-    ZeroMemory(&nid, sizeof(nid));
+    NOTIFYICONDATAA nid = { 0 };
     nid.cbSize = sizeof(NOTIFYICONDATAA);
     nid.hWnd = hwnd;
     nid.uID = 1;
@@ -737,7 +752,7 @@ void ExitApp(void) {
 
     StopPicker();
     UnregisterAppHotkey();
-    RemoveTrayIcon(hMsg); 
+    RemoveTrayIcon(hMsg);
 
     PostQuitMessage(0);
 }
@@ -790,7 +805,7 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         else if (lParam == WM_RBUTTONUP) {
             // Right click tray icon = Context Menu
-            POINT pt;
+            POINT pt = { 0 };
             GetCursorPos(&pt);
 
             HMENU hMenu = CreatePopupMenu();
@@ -816,7 +831,7 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
             SetForegroundWindow(hwnd);
             int cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, NULL);
-            DestroyMenu(hMenu); 
+            DestroyMenu(hMenu);
 
             if (cmd == ID_TRAY_PICK) {
                 PostMessageA(hwnd, WM_APP_PICK, 0, 0);
@@ -947,7 +962,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
     StartPicker(hInstance);
 
     // Keep app alive
-    MSG msg;
+    MSG msg = { 0 };
 
     while (GetMessageA(&msg, NULL, 0, 0) > 0) {
         TranslateMessage(&msg);
