@@ -4,6 +4,7 @@
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "shell32.lib") 
+#pragma comment(lib, "advapi32.lib")
 #include <windows.h>
 #include <shellapi.h> 
 #include "resource.h" 
@@ -66,6 +67,7 @@ int gLoupeY = 0;
 #define ID_TRAY_SIZE_3X3 1005
 #define ID_TRAY_SIZE_5X5 1006
 #define ID_TRAY_SIZE_15X15 1007
+#define ID_TRAY_STARTUP  1008
 
 
 
@@ -740,6 +742,35 @@ void ExitApp(void) {
     PostQuitMessage(0);
 }
 
+static int IsStartupEnabled(void) {
+    HKEY hKey;
+    int enabled = 0;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char path[MAX_PATH];
+        DWORD size = sizeof(path);
+        if (RegQueryValueExA(hKey, "MinimalColorPicker", NULL, NULL, (LPBYTE)path, &size) == ERROR_SUCCESS) {
+            enabled = 1;
+        }
+        RegCloseKey(hKey);
+    }
+    return enabled;
+}
+
+static void ToggleStartup(void) {
+    HKEY hKey;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_ALL_ACCESS, &hKey) == ERROR_SUCCESS) {
+        if (IsStartupEnabled()) {
+            RegDeleteValueA(hKey, "MinimalColorPicker");
+        }
+        else {
+            char exePath[MAX_PATH];
+            GetModuleFileNameA(NULL, exePath, MAX_PATH);
+            RegSetValueExA(hKey, "MinimalColorPicker", 0, REG_SZ, (const BYTE*)exePath, lstrlenA(exePath) + 1);
+        }
+        RegCloseKey(hKey);
+    }
+}
+
 LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE:
@@ -775,7 +806,13 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             InsertMenuA(hMenu, 2, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hSubMenu, "Sample Size");
 
             InsertMenuA(hMenu, 3, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-            InsertMenuA(hMenu, 4, MF_BYPOSITION | MF_STRING, IDTRAYEXIT, "Exit");
+
+            UINT startupFlags = MF_BYPOSITION | MF_STRING;
+            if (IsStartupEnabled()) startupFlags |= MF_CHECKED;
+            InsertMenuA(hMenu, 4, startupFlags, ID_TRAY_STARTUP, "Run on Startup");
+
+            InsertMenuA(hMenu, 5, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+            InsertMenuA(hMenu, 6, MF_BYPOSITION | MF_STRING, IDTRAYEXIT, "Exit");
 
             SetForegroundWindow(hwnd);
             int cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, NULL);
@@ -790,6 +827,9 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 else if (cmd == ID_TRAY_SIZE_5X5) gPixelRadius = 2;
                 else if (cmd == ID_TRAY_SIZE_15X15) gPixelRadius = 7;
                 SaveSettings(); // Write to .ini file
+            }
+            else if (cmd == ID_TRAY_STARTUP) {
+                ToggleStartup();
             }
             else if (cmd == IDTRAYEXIT) {
                 ExitApp();
