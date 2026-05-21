@@ -8,25 +8,7 @@
 #include <shellapi.h> 
 #include "resource.h" 
 
-// Avoid redefining CRT memset
-static void mcp_zero_memory(void* dest, SIZE_T count) {
-    unsigned char* bytes;
-
-    if (!dest || count == 0) {
-        return;
-    }
-
-    bytes = (unsigned char*)dest;
-
-    while (count--) {
-        *bytes++ = 0;
-    }
-}
-
-#define MCP_ZERO(ptr) mcp_zero_memory((ptr), sizeof(*(ptr)))
-
-
-
+#define MCP_ZERO(ptr) ZeroMemory((ptr), sizeof(*(ptr)))
 
 // CONFIGURATION 
 #define LOUPE_SIZE 192
@@ -226,12 +208,8 @@ static void DestroyAppIcons(void) {
 
 static void FreeDesktopSnapshot(void) {
     DEL_OBJ(gPickBmp);
-
-    if (gPickDC) {
-        DeleteDC(gPickDC);
-        gPickDC = NULL;
-    }
-
+    DeleteDC(gPickDC);
+    gPickDC = NULL;
     gPickBits = NULL;
 }
 
@@ -602,8 +580,7 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         if (OpenClipboard(hwnd)) {
             EmptyClipboard();
 
-            SIZE_T len = (SIZE_T)lstrlenA(hexStr) + 1;
-            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, sizeof(hexStr));
 
             if (hMem) {
                 char* ptr = GlobalLock(hMem);
@@ -862,14 +839,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
     // Keep app alive
     MSG msg;
-
-    msg.hwnd = NULL;
-    msg.message = 0;
-    msg.wParam = 0;
-    msg.lParam = 0;
-    msg.time = 0;
-    msg.pt.x = 0;
-    msg.pt.y = 0;
 
     while (GetMessageA(&msg, NULL, 0, 0) > 0) {
         TranslateMessage(&msg);
