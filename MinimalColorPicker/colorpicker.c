@@ -6,6 +6,7 @@
 #pragma comment(lib, "shell32.lib") 
 #include <windows.h>
 #include <shellapi.h> 
+#include "resource.h" 
 
 // Avoid redefining CRT memset
 static void mcp_zero_memory(void* dest, SIZE_T count) {
@@ -178,89 +179,33 @@ static void DestroyCachedGdiObjects(void) {
     DEL_OBJ(gBrushToastBg);
 }
 
-static void BuildLogoIconPath(char* outPath, DWORD outSize) {
-    DWORD len;
-    char* lastSlash = NULL;
-    const char logoName[] = "logo.ico";
-    DWORD logoLen = (DWORD)(sizeof(logoName)); 
-
-    if (!outPath || outSize == 0) {
-        return;
-    }
-
-    outPath[0] = '\0';
-
-    len = GetModuleFileNameA(NULL, outPath, outSize);
-
-    if (len == 0 || len >= outSize) {
-        outPath[0] = '\0';
-        return;
-    }
-
-    for (char* p = outPath; *p; p++) {
-        if (*p == '\\' || *p == '/') {
-            lastSlash = p;
-        }
-    }
-
-    if (lastSlash) {
-        DWORD prefixLen = (DWORD)((lastSlash + 1) - outPath);
-
-        if (prefixLen + logoLen <= outSize) {
-            char* dst = lastSlash + 1;
-            const char* src = logoName;
-
-            while ((*dst++ = *src++) != '\0') {
-               
-            }
-        }
-        else {
-            outPath[0] = '\0';
-        }
-    }
-    else {
-        if (logoLen <= outSize) {
-            char* dst = outPath;
-            const char* src = logoName;
-
-            while ((*dst++ = *src++) != '\0') {
-            }
-        }
-        else {
-            outPath[0] = '\0';
-        }
-    }
-}
-
 static void LoadAppIcons(void) {
-    char iconPath[MAX_PATH];
-
-    BuildLogoIconPath(iconPath, MAX_PATH);
-
+    // Load icon
     gAppIcon = (HICON)LoadImageA(
-        NULL,
-        iconPath,
+        gInstance,
+        MAKEINTRESOURCEA(IDI_ICON1), // ID from resource.h
         IMAGE_ICON,
         GetSystemMetrics(SM_CXICON),
         GetSystemMetrics(SM_CYICON),
-        LR_LOADFROMFILE | LR_DEFAULTCOLOR
+        LR_DEFAULTCOLOR
     );
 
     gAppIconSm = (HICON)LoadImageA(
-        NULL,
-        iconPath,
+        gInstance,
+        MAKEINTRESOURCEA(IDI_ICON1),
         IMAGE_ICON,
         GetSystemMetrics(SM_CXSMICON),
         GetSystemMetrics(SM_CYSMICON),
-        LR_LOADFROMFILE | LR_DEFAULTCOLOR
+        LR_DEFAULTCOLOR
     );
 
+    // Fallback 
     if (!gAppIcon) {
-        gAppIcon = LoadIconA(NULL, MAKEINTRESOURCEA(32512)); 
+        gAppIcon = LoadIconA(NULL, MAKEINTRESOURCEA(32512));
     }
 
     if (!gAppIconSm) {
-        gAppIconSm = LoadIconA(NULL, MAKEINTRESOURCEA(32512)); 
+        gAppIconSm = LoadIconA(NULL, MAKEINTRESOURCEA(32512));
     }
 }
 
