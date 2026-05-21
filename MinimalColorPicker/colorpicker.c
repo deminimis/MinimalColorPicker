@@ -13,7 +13,7 @@
 // CONFIGURATION 
 #define LOUPE_SIZE 192
 #define ZOOM_FACTOR 6
-#define PIXEL_RADIUS 1  // 0 = 1x1, 1 = 3x3, 2 = 5x5 averaging grid
+int gPixelRadius = 1;  // 0 = 1x1, 1 = 3x3, 2 = 5x5 averaging grid
 
 // Global handles
 HWND hOverlay = NULL;
@@ -62,6 +62,10 @@ int gLoupeY = 0;
 #define WM_APP_TRAYMSG  (WM_APP + 2) 
 #define IDTRAYEXIT      1002
 #define ID_TRAY_PICK    1003
+#define ID_TRAY_SIZE_1X1 1004
+#define ID_TRAY_SIZE_3X3 1005
+#define ID_TRAY_SIZE_5X5 1006
+#define ID_TRAY_SIZE_15X15 1007
 
 
 
@@ -258,7 +262,7 @@ static void MoveMergedLoupe(HWND hwnd, int screenX, int screenY) {
 }
 
 static COLORREF SampleSnapshotColor(int screenX, int screenY) {
-    int lx = screenX - gVirtX, ly = screenY - gVirtY, r = PIXEL_RADIUS;
+    int lx = screenX - gVirtX, ly = screenY - gVirtY, r = gPixelRadius;
     int x0 = CLAMP(lx - r, 0, gVirtW - 1), x1 = CLAMP(lx + r, 0, gVirtW - 1);
     int y0 = CLAMP(ly - r, 0, gVirtH - 1), y1 = CLAMP(ly + r, 0, gVirtH - 1);
     int sumR = 0, sumG = 0, sumB = 0, count = 0;
@@ -458,7 +462,7 @@ static LRESULT CALLBACK OverlayProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
            
 
             // Center target pixel
-            int centerBoxSize = (2 * PIXEL_RADIUS + 1) * ZOOM_FACTOR;
+            int centerBoxSize = (2 * gPixelRadius + 1) * ZOOM_FACTOR;
             int centerBoxX = (LOUPE_SIZE - centerBoxSize) / 2;
             int centerBoxY = (LOUPE_SIZE - centerBoxSize) / 2;
 
@@ -727,7 +731,7 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CREATE:
         SendMessageA(hwnd, WM_SETICON, ICON_BIG, (LPARAM)gAppIcon);
         SendMessageA(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)gAppIconSm);
-        AddTrayIcon(hwnd); 
+        AddTrayIcon(hwnd);
         return 0;
 
     case WM_APP_PICK:
@@ -743,18 +747,33 @@ LRESULT CALLBACK HiddenProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // Right click tray icon = Context Menu
             POINT pt;
             GetCursorPos(&pt);
+
             HMENU hMenu = CreatePopupMenu();
             InsertMenuA(hMenu, 0, MF_BYPOSITION | MF_STRING, ID_TRAY_PICK, "Pick Color");
             InsertMenuA(hMenu, 1, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
-            InsertMenuA(hMenu, 2, MF_BYPOSITION | MF_STRING, IDTRAYEXIT, "Exit");
 
-            SetForegroundWindow(hwnd); 
+            // Submenu for size
+            HMENU hSubMenu = CreatePopupMenu();
+            InsertMenuA(hSubMenu, 0, MF_BYPOSITION | MF_STRING | (gPixelRadius == 0 ? MF_CHECKED : MF_UNCHECKED), ID_TRAY_SIZE_1X1, "1x1 Pixel");
+            InsertMenuA(hSubMenu, 1, MF_BYPOSITION | MF_STRING | (gPixelRadius == 1 ? MF_CHECKED : MF_UNCHECKED), ID_TRAY_SIZE_3X3, "3x3 Average");
+            InsertMenuA(hSubMenu, 2, MF_BYPOSITION | MF_STRING | (gPixelRadius == 2 ? MF_CHECKED : MF_UNCHECKED), ID_TRAY_SIZE_5X5, "5x5 Average");
+            InsertMenuA(hSubMenu, 3, MF_BYPOSITION | MF_STRING | (gPixelRadius == 7 ? MF_CHECKED : MF_UNCHECKED), ID_TRAY_SIZE_15X15, "15x15 Average");
+            InsertMenuA(hMenu, 2, MF_BYPOSITION | MF_POPUP, (UINT_PTR)hSubMenu, "Sample Size");
+
+            InsertMenuA(hMenu, 3, MF_BYPOSITION | MF_SEPARATOR, 0, NULL);
+            InsertMenuA(hMenu, 4, MF_BYPOSITION | MF_STRING, IDTRAYEXIT, "Exit");
+
+            SetForegroundWindow(hwnd);
             int cmd = TrackPopupMenu(hMenu, TPM_LEFTALIGN | TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, NULL);
-            DestroyMenu(hMenu);
+            DestroyMenu(hMenu); 
 
             if (cmd == ID_TRAY_PICK) {
                 PostMessageA(hwnd, WM_APP_PICK, 0, 0);
             }
+            else if (cmd == ID_TRAY_SIZE_1X1) gPixelRadius = 0;
+            else if (cmd == ID_TRAY_SIZE_3X3) gPixelRadius = 1;
+            else if (cmd == ID_TRAY_SIZE_5X5) gPixelRadius = 2;
+            else if (cmd == ID_TRAY_SIZE_15X15) gPixelRadius = 7;
             else if (cmd == IDTRAYEXIT) {
                 ExitApp();
             }
